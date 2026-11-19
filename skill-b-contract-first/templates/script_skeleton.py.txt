@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""analysis.py — 契约先行协议生成的单文件分析脚本（骨架，按案例填充）。
+四段固定结构：断言门 -> 清洗段 -> 计算段 -> 复核块。断言失败即退出，绝不降级为警告。
+"""
+import csv, json, sys, sqlite3, hashlib, platform
+from pathlib import Path
+
+INPUT = Path('/input'); WORK = Path('/app/work'); OUT = Path('/app/output')
+OUT.mkdir(parents=True, exist_ok=True)
+
+def die(msg, code=2):
+    sys.stderr.write('ASSERTION GATE FAILED: %s\n' % msg); sys.exit(code)
+
+def sha256(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for c in iter(lambda: f.read(65536), b''):
+            h.update(c)
+    return h.hexdigest()
+
+# ============ 第一段：断言门 ============
+# TODO: 从 rules.md 复制真实列名与预期行数（不要凭记忆写）
+RAW = INPUT / '数据文件名.csv'                    # TODO
+EXPECTED_COLS = []                               # TODO: rules.md 第 2 节的原始列名
+EXPECTED_ROWS = None                             # TODO: 数据字典声明的行数；无声明则保持 None 并在 anomalies 说明
+
+if not RAW.is_file():
+    die('input file not found: %s' % RAW)
+with open(RAW, newline='', encoding='utf-8-sig') as f:   # 编码失败见 failure_playbook.md
+    rdr = csv.DictReader(f)
+    rows = list(rdr)
+    header = rdr.fieldnames or []
+missing_cols = [c for c in EXPECTED_COLS if c not in header]
+if missing_cols:
+    die('columns %s not present; actual header: %s' % (missing_cols, header))
+if EXPECTED_ROWS is not None and len(rows) != EXPECTED_ROWS:
+    die('row count %d != dictionary value %d' % (len(rows), EXPECTED_ROWS))
+print('[gate] file=%s sha256=%s rows=%d cols=%s' % (RAW, sha256(RAW)[:12], len(rows), header))
+
+# ============ 第二段：清洗段（每步打印行数账） ============
+n0 = len(rows)
+# TODO: 按 rules.md 第 3 节逐条实现，每条之后打印：
+#   print('[clean] rows: %d -> %d (rule R1 drop_rows on slump,strength)' % (before, after))
+n_excluded = n0 - len(rows)  # 保持这行在清洗结束后成立；排除数必须能解释
+
+# ============ 第三段：计算段 ============
+results = {}   # 键名与 output_contract 字段一一对应
+# TODO: 统计量（写入 results，同时 print 一行 [stat] name=value 供 run.log 核对）
+# TODO: 图（保存到 OUT / 'figX.png'，标题/轴/单位逐字来自数据字典；
+#       matplotlib 不可用时保存绘图数据 CSV 并在 anomalies 声明）
+# TODO: SQL（只读连接 'file:...?mode=ro'，结果落 CSV，打印 [sql] n_rows=...；
+#       0 行结果必须停下来核对表名/条件，不许直接接受）
+
+# ============ 第四段：复核块（第二种实现独立复算，必需） ============
+# 见 templates/verification_block.py.txt —— 不复核就交付是协议违规
+# SELF-CHECK PASSED 打印后才允许进入 result.json 填充
+
+print('[env] python=%s platform=%s' % (platform.python_version(), platform.platform()))
+print(json.dumps({'results_summary_keys': sorted(results)}, ensure_ascii=False))

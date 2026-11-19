@@ -1,0 +1,53 @@
+# ============ 复核块模板：追加在 analysis.py 尾部 ============
+# 原则：每个写进 results 的 headline 数字，必须用与计算段不同的实现路径重算一次。
+# 计算段用 pandas  -> 复核用 csv+stdlib；计算段用 stdlib -> 复核用 sqlite3。
+# 相对容差 1e-6；任何一条不符，打印差异表并 sys.exit(1)，绝不放行。
+
+import csv as _csv, sqlite3 as _sq, sys as _sys
+
+def _recompute_mean_std(path, column):
+    """纯 stdlib 从原始/清洗后文件重算 mean 与样本 std（与 pandas 无关）。"""
+    vals = []
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        for r in _csv.DictReader(f):
+            v = (r.get(column) or '').strip()
+            if v and v.lower() not in ('na', 'nan', 'null', 'none', '-'):
+                vals.append(float(v))
+    n = len(vals)
+    mean = sum(vals) / n
+    var = sum((x - mean) ** 2 for x in vals) / (n - 1) if n > 1 else 0.0
+    return n, mean, var ** 0.5
+
+def _recompute_sql_scalar(db, query):
+    con = _sq.connect('file:%s?mode=ro' % db, uri=True)
+    try:
+        rows = con.execute(query).fetchall()
+    finally:
+        con.close()
+    if len(rows) != 1 or len(rows[0]) != 1:
+        raise SystemExit('SELF-CHECK FAILED: query did not return a scalar: %s' % query)
+    return rows[0][0]
+
+_checks = []   # (名称, 计算段值, 复算值)
+
+# TODO: 为每个 headline 数字加一行，例如：
+# n2, mean2, std2 = _recompute_mean_std(WORK / 'clean.csv', 'strength')
+# _checks.append(('mean_strength', results['mean_strength'], mean2))
+# _checks.append(('row_count_raw', results['n_rows_raw'],
+#                 sum(1 for _ in open(RAW, encoding='utf-8-sig')) - 1))
+# _checks.append(('db_count', results['db_count'],
+#                 _recompute_sql_scalar(INPUT / 'lab.db', 'SELECT COUNT(*) FROM samples')))
+
+_bad = []
+for name, reported, recomputed in _checks:
+    ok = (abs(reported - recomputed) <= 1e-6 * max(1.0, abs(recomputed))
+          if isinstance(reported, (int, float)) and isinstance(recomputed, (int, float))
+          else reported == recomputed)
+    print('[self-check] %-24s reported=%r recomputed=%r %s'
+          % (name, reported, recomputed, 'OK' if ok else 'MISMATCH'))
+    if not ok:
+        _bad.append(name)
+if _bad:
+    print('SELF-CHECK FAILED on: %s' % _bad, file=_sys.stderr)
+    _sys.exit(1)
+print('SELF-CHECK PASSED (%d claims cross-verified by independent implementation)' % len(_checks))
